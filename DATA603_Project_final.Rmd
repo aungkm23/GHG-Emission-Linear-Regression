@@ -1,0 +1,372 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# DATA 603 Group 4 Project Report 
+
+This file contains the R code required to generate the outcomes and minor commentary. Please refer to the main report for a detailed explanation on the steps used to generate the final model as part of this investigation.
+
+```{r}
+#Reading in the data file
+Energy_investigation = read.csv("DATA603_DataCombined.csv", header = TRUE)
+head(Energy_investigation,3)
+```
+```{r}
+#Import necessary libraries 
+library(olsrr)
+library(mctest)
+library(leaps)
+library(GGally)
+```
+
+## Step 1: Multicollinearity Review 
+
+```{r}
+#Since the dataset has already been cleaned to only contain relevant data, the notation '.' can be used
+First.Order.Base.Model <- lm(Yearly_GHG_Emission~., data = Energy_investigation)
+```
+
+```{r}
+imcdiag(First.Order.Base.Model, method="VIF")
+```
+From the above analysis, it appears there is a potential for Region, Crude_Yearly_Average, Elec_Yearly_Average, and NG_Yearly_Average to show signs of multicollinearity. This will be confirmed with a visualization for the numerical variables. 
+
+```{r}
+pairs(~Crude_Yearly_Average+Elec_Yearly_Average+NG_Yearly_Average,data = Energy_investigation)
+```
+No correlation is seen within the numerical variables. 
+
+It is likely that multicollinearity is only observed due to the fact that the categorical variable, Region, has more than three levels (Allison, 2012). 
+
+Check this hypothesis by recalculating the VIF values when Region is removed. 
+
+```{r}
+First.OrderBaseModel.RegionRemoved <- lm(Yearly_GHG_Emission~Crude_Yearly_Average+Elec_Yearly_Average+Hydrogen_Yearly_Average+NG_Yearly_Average+factor(Dwelling_Type)+Energy_Consumption, data = Energy_investigation)
+imcdiag(First.OrderBaseModel.RegionRemoved, method="VIF")
+```
+
+For the variable Crude_Yearly_Average, the VIF value is greater than 5 but the R output indicates that detection is 0. As a cautionary measure, a visualization will be generated to confirm that Crude_Yearly_Average does not have multicollinearity with any other numerical variable present within the model. 
+
+```{r}
+pairs(~Crude_Yearly_Average+Hydrogen_Yearly_Average+Energy_Consumption,data = Energy_investigation)
+```
+There does not appear to be a clear correlation between the remaining numerical variables and the variable Crude_Yearly_Average. Note, the bivariate plots with Hydrogen_Yearly_Average show a singular line since it appears the only values for hydrogen production within the dataset is zero. Therefore, there does not appear to be multicollinearity between Crude_Yearly_Average and any of the other numerical variables within the dataset. It is possible that the remaining categorical variable Dwelling_Type is causing high VIF values. A last round of VIF calculations will be conducted with Dwelling_Type removed as a precautionary measure.
+
+```{r}
+First.OrderBaseModel.Removed <- lm(Yearly_GHG_Emission~Crude_Yearly_Average+Elec_Yearly_Average+Hydrogen_Yearly_Average+NG_Yearly_Average+Energy_Consumption, data = Energy_investigation)
+imcdiag(First.OrderBaseModel.Removed, method="VIF")
+```
+
+## Step 2: Base Predictor Determination
+
+### Full Model Test
+
+The first order base model with all the potential predictors can be modeled as: 
+$$
+\begin{aligned}
+\text{Yearly_GHG_Emission} &= \beta_0 + \beta_1Region_{i1} + \beta_2Region_{i2}+\beta_3Region_{i3}+\beta_4Region_{i4}\\
+&+\beta_5Region_{i5} +\beta_6 \text{Crude_Yearly_Average}+ \beta_7 \text{Hydrogen_Yearly_Average}+\beta_8 \text{NG_Yearly_Average}\\
+&+\beta_9 \text{Elec_Yearly_Average}+\beta_{10}\text{Dwelling_Type}_{i1}+\beta_{11}\text{Dwelling_Type}_{i2}+\beta_{12}\text{Dwelling_Type}_{i3} \\
+&+ \beta_{13}\text{Dwelling_Type}_{i4}+\beta_{14}\text{Dwelling_Type}_{i5}+\beta_{15}\text{Dwelling_Type}_{i6}+\beta_{16} \text{Energy_Consumption}+\epsilon
+\end{aligned}
+$$
+A full model test will be performed. The hypotheses are set up such that:
+$$
+\begin{aligned}
+H_0&:\beta_1=\beta_2=\beta_3=\cdots=\beta_{16}=0 \\
+H_a&:\mbox{at least one }\beta_i\mbox{ is not zero } (i=1,2,3,\cdots,16) 
+\end{aligned}
+$$
+
+An analysis of variance is performed using the 'anova' function within R. 
+```{r}
+First.Order.Base.Model.reduced<-lm(Yearly_GHG_Emission~1, data=Energy_investigation) #Model with intercept only (reduced model)
+anova(First.Order.Base.Model.reduced,First.Order.Base.Model) #default significance level is 0.05
+```
+```{r}
+#To express the p-value in scientific notation
+format(0.00000000000000022, scientific = TRUE)
+```
+The p-value is very small at 2.2e-16, which is less than 0.05 - thus, the null hypothesis should be rejected. Therefore, at least one of the independent variables is related to the GHG emissions. 
+
+### Individual Coefficient Tests
+
+The hypotheses being tested are: 
+$$
+\begin{aligned}
+H_0&:\beta_i=0\mbox{    ($i=1,2,3,\cdots, 16$)} \\
+H_a&:\beta_i\neq0\mbox{    ($i=1,2,3,\cdots, 16$)}
+\end{aligned}
+$$
+
+```{r}
+summary(First.Order.Base.Model)
+```
+From the individual coefficients test, using the t-test, it appears the predictors Region, Crude_Yearly_Average and Elec_Yearly_Average is correlated with GHG emissions. 
+
+The model will be updated to only include the specified 3 variables and the t-test will be performed again. Please find the results of this analysis in the Conclusion section of Step 2. 
+
+### Stepwise Regression 
+
+```{r}
+stepmod=ols_step_both_p(First.Order.Base.Model,pent = 0.05, prem = 0.1, details=TRUE) #the p-enter value is chosen to be at 0.05 to match a value of 95% confidence level 
+summary(stepmod$model)
+stepmod
+```
+
+The variables remaining are the same as what was found using the t-test: Region, yearly production of crude oil and yearly production of electricity. 
+
+Please note, the Forward Regression Procedure was not applied as it applies the same steps as the Stepwise Procedure except without the potential of eliminating added variables. 
+
+### Backward Regression Procedure
+
+```{r}
+backmodel=ols_step_backward_p(First.Order.Base.Model, prem = 0.05, details=TRUE)
+summary(backmodel$model)
+backmodel
+```
+
+The variables remaining are similar to what was found using the t-test and the stepwise regression: Region, Crude_Yearly_Average, and Elec_Yearly_Average . Hydrogen_Yearly_Average was not eliminated, however that was due to the fact that the values for hydrogen is zero within this column and thus, would not have an appropriate estimated parameter regardless of its presence within the model.  
+
+### All-Possible-Regressions-Selection
+
+```{r}
+best.subset<-regsubsets(Yearly_GHG_Emission~., data=Energy_investigation, nv=10)
+reg.summary<-summary(best.subset)
+
+cp<-c(reg.summary$cp)
+RMSE<-c(reg.summary$rss)
+AdjustedR<-c(reg.summary$adjr2)
+BIC<-c(reg.summary$bic)
+
+reg.summary
+```
+
+```{r}
+cbind(cp,BIC,RMSE,AdjustedR)
+
+par(mfrow=c(2,2)) # split the plotting panel into a 2 x 2 grid
+plot(reg.summary$cp,type = "o",pch=10, xlab="Number of Variables",ylab= "Cp")
+plot(reg.summary$bic,type = "o",pch=10, xlab="Number of Variables",ylab= "BIC")
+plot(reg.summary$rss,type = "o",pch=10, xlab="Number of Variables",ylab= "RMSE")
+plot(reg.summary$adjr2,type = "o",pch=10, xlab="Number of Variables",ylab= "Adjusted R^2")
+```
+The model selected is the one with 4 predictors due to the fact that it minimizes RMSE, Cp, and BIC while maximizing the $R_{adj}^2$ value.  
+
+### Conclusion
+
+It appears there are 3 variables in common: Region, yearly production of crude oil and yearly production of electricity. Therefore, the updated proposed model will take the format: 
+$$
+\begin{aligned}
+\text{Yearly_GHG_Emission} &= \beta_0 + \beta_1Region_{i1} + \beta_2Region_{i2}+\beta_3Region_{i3}+\beta_4Region_{i4}\\
+&+\beta_5Region_{i5} +\beta_6 \text{Crude_Yearly_Average}+ \beta_7 \text{Elec_Yearly_Average}
+\end{aligned}
+$$
+The individual coefficient test will be applied to the proposed updated model, which has the following hypothesis:
+$$
+\begin{aligned}
+H_0&:\beta_i=0\mbox{    ($i=1,2,3,\cdots, 7$)} \\
+H_a&:\beta_i\neq0\mbox{    ($i=1,2,3,\cdots, 7$)}
+\end{aligned}
+$$
+
+```{r}
+Base.Model <- lm(Yearly_GHG_Emission~factor(Region)+Crude_Yearly_Average+Elec_Yearly_Average, data = Energy_investigation)
+summary(Base.Model)
+```
+
+All predictors appear to continue to be significant - thus, all are kept. 
+
+```{r}
+round(coefficients(Base.Model),4) #Rounding to 4 decimal places
+```
+Therefore, the updated model is: 
+$$
+\begin{aligned}
+\hat{\text{Yearly_GHG_Emission}} &= 218648.2250 -158454.5095 Region_{i1} + 323170.1674 Region_{i2}-202531.7569 Region_{i3}-90895.8567 Region_{i4}\\
+&-156503.3431  Region_{i5} +24.9340  \text{Crude_Yearly_Average}+ 0.2902 \text{Elec_Yearly_Average}
+\end{aligned}
+$$
+
+## Step 3: Interaction Terms 
+
+With the updated base model, interaction terms will be evaluated. The hypothesized model is:
+
+$$
+\begin{aligned}
+\text{Yearly_GHG_Emission} &= \beta_0 + \beta_1Region_{i1} + \beta_2Region_{i2}+\beta_3Region_{i3}+\beta_4Region_{i4}\\
+&+\beta_5Region_{i5} +\beta_6 \text{Crude_Yearly_Average}+ \beta_7 \text{Elec_Yearly_Average}\\
+&+ \beta_8(Region_{i1})(\text{Crude_Yearly_Average}) + \beta_9(Region_{i2})(\text{Crude_Yearly_Average})+\beta_{10}(Region_{i3})(\text{Crude_Yearly_Average})\\
+&+\beta_{11}(Region_{i4})(\text{Crude_Yearly_Average})+\beta_{12}(Region_{i5})(\text{Crude_Yearly_Average})+\beta_{13}(Region_{i1})(\text{Elec_Yearly_Average})\\
+&+\beta_{14}(Region_{i2})(\text{Elec_Yearly_Average})+\beta_{15}(Region_{i3})(\text{Elec_Yearly_Average})+\beta_{16}(Region_{i4})(\text{Elec_Yearly_Average})\\
+&+\beta_{17}(Region_{i5})(\text{Elec_Yearly_Average})+\beta_{18}(\text{Crude_Yearly_Average})(\text{Elec_Yearly_Average})
+\end{aligned}
+$$
+
+The individual coefficient test will be applied to the proposed updated model, which has the following hypothesis:
+$$
+\begin{aligned}
+H_0&:\beta_i=0\mbox{    ($i=1,2,3,\cdots, 18$)} \\
+H_a&:\beta_i\neq0\mbox{    ($i=1,2,3,\cdots, 18$)}
+\end{aligned}
+$$
+
+```{r}
+Interaction.Model <- lm(Yearly_GHG_Emission~(factor(Region)+Crude_Yearly_Average+Elec_Yearly_Average)^2, data = Energy_investigation)
+summary(Interaction.Model)
+```
+All interactions terms are significant, therefore they will all be kept in the model. 
+
+```{r}
+round(coefficients(Interaction.Model),4) #Rounding to 4 decimal places
+```
+
+
+The model with the interaction terms is: 
+$$
+\begin{aligned}
+\hat{\text{Yearly_GHG_Emission}} &= -19806.3345 + 97451.4007 Region_{i1} -451413.0413 Region_{i2}+9977.0474 Region_{i3}+346753.6210 Region_{i4}\\
+&+30915.8281 Region_{i5} +114.2416 \text{Crude_Yearly_Average}+ 3.4741 \text{Elec_Yearly_Average}\\
+&+ 192.1408 (Region_{i1})(\text{Crude_Yearly_Average}) + 680.3384 (Region_{i2})(\text{Crude_Yearly_Average})+ 288.4150 (Region_{i3})(\text{Crude_Yearly_Average})\\
+&+40259.1968 (Region_{i4})(\text{Crude_Yearly_Average})+389.0909  (Region_{i5})(\text{Crude_Yearly_Average})-3.5028 (Region_{i1})(\text{Elec_Yearly_Average})\\
+&-1.5671  (Region_{i2})(\text{Elec_Yearly_Average})-0.7520(Region_{i3})(\text{Elec_Yearly_Average})-4.5478 (Region_{i4})(\text{Elec_Yearly_Average})\\
+&-3.9027 (Region_{i5})(\text{Elec_Yearly_Average})-0.0012 (\text{Crude_Yearly_Average})(\text{Elec_Yearly_Average})
+\end{aligned}
+$$
+
+## Step 4: Higher Order 
+
+```{r}
+EnergyData <-data.frame(Energy_investigation$Yearly_GHG_Emission,Energy_investigation$Region,Energy_investigation$Crude_Yearly_Average,
+                        Energy_investigation$Elec_Yearly_Average)
+ggpairs(EnergyData)
+```
+
+The variable with the highest correlation is yearly electricity generation. This will be the first variable to be investigated for any higher order relation. However, from the figures, it does not appear there is a clear trend of the higher order type (i.e. quadratic, cubic etc.). Therefore, as a precautionary meausre, both numerical variables will be checked for a potential higher order presence. 
+
+```{r}
+HigherOrder.Model1 <- lm(Yearly_GHG_Emission~factor(Region)+Crude_Yearly_Average+Elec_Yearly_Average+I(Elec_Yearly_Average^2), data = Energy_investigation)
+summary(HigherOrder.Model1)
+```
+
+```{r}
+summary(Interaction.Model)$adj.r.squared
+sigma(Interaction.Model)
+```
+
+```{r}
+summary(HigherOrder.Model1)$adj.r.squared
+sigma(HigherOrder.Model1)
+```
+The $R_{adj}^2$ is higher and the RMSE is lower in the model without the higher order term of yearly electricity generation. Therefore, no higher order term will be adopted. 
+
+Next the potential higher order presence in the yearly crude oil production is checked. 
+```{r}
+HigherOrder.Model2 <- lm(Yearly_GHG_Emission~factor(Region)+Crude_Yearly_Average+Elec_Yearly_Average+I(Crude_Yearly_Average^2), data = Energy_investigation)
+summary(HigherOrder.Model2)
+```
+
+```{r}
+summary(HigherOrder.Model2)$adj.r.squared
+sigma(HigherOrder.Model2)
+```
+The $R_{adj}^2$ is higher and the RMSE is lower in the model without the higher order term of yearly electricity generation. Therefore, no higher order term will be adopted. 
+
+Therefore, the final model is: 
+$$
+\begin{aligned}
+\hat{\text{Yearly_GHG_Emission}} &= -19806.3345 + 97451.4007 Region_{i1} -451413.0413 Region_{i2}+9977.0474 Region_{i3}+346753.6210 Region_{i4}\\
+&+30915.8281 Region_{i5} +114.2416 \text{Crude_Yearly_Average}+ 3.4741 \text{Elec_Yearly_Average}\\
+&+ 192.1408 (Region_{i1})(\text{Crude_Yearly_Average}) + 680.3384 (Region_{i2})(\text{Crude_Yearly_Average})+ 288.4150 (Region_{i3})(\text{Crude_Yearly_Average})\\
+&+40259.1968 (Region_{i4})(\text{Crude_Yearly_Average})+389.0909  (Region_{i5})(\text{Crude_Yearly_Average})-3.5028 (Region_{i1})(\text{Elec_Yearly_Average})\\
+&-1.5671  (Region_{i2})(\text{Elec_Yearly_Average})-0.7520(Region_{i3})(\text{Elec_Yearly_Average})-4.5478 (Region_{i4})(\text{Elec_Yearly_Average})\\
+&-3.9027 (Region_{i5})(\text{Elec_Yearly_Average})-0.0012 (\text{Crude_Yearly_Average})(\text{Elec_Yearly_Average})
+\end{aligned}
+$$
+
+With only interaction terms and base predictors. 
+
+## Step 5: Assumptions Testing
+
+### Linearity Assumption 
+```{r}
+ggplot(Interaction.Model, aes(x = .fitted, y = .resid))+
+  geom_point()+geom_smooth()+geom_hline(yintercept = 0)
+```
+According to the residual plot above, the geom_smooth line is align and not far from the middle line, indicating that there does exist linear relationship between independent variables and dependent variable. The linearity assumption hold for the final model.
+
+### Independence assumption
+No R code is required
+
+
+### Equal Variance Assumption (Homoscedasticity)
+BP-test
+$$
+  H_{0}: \text{Heteroscedasticity is not present (homoscedasticity)}\\ 
+  H_{A}: \text{heteroscedasticity is present}
+$$
+
+```{r}
+bptest(Interaction.Model)
+```
+As the p-value of the model is smaller than 0.05, we will reject the null hypothesis and conclude that the homoscedasticity does not hold.
+
+Hence, we will be implementing the Box Cox transformation to solve the homoscedasticity problem:
+finding the best lambda:
+```{r}
+bc=boxcox(Interaction.Model,lambda=seq(-1,3))
+```
+```{r}
+bestlambda=bc$x[which(bc$y==max(bc$y))]
+bestlambda
+```
+```{r}
+bcmodel1=lm(((Yearly_GHG_Emission)^0.7778-1)/(0.7778)~(factor(Region)+Crude_Yearly_Average+Elec_Yearly_Average)^2, data = Energy_investigation)
+summary(bcmodel1)
+```
+```{r}
+bptest(bcmodel1)
+```
+
+
+### Normality assumption
+```{r}
+ggplot(data = Energy_investigation, aes(sample=bcmodel1$residuals)) +
+  stat_qq() +
+  stat_qq_line()
+```
+```{r}
+ggplot(data=Energy_investigation, aes(residuals(bcmodel1))) + 
+  geom_histogram(breaks = seq(-200,200,by=25), col="red", fill="blue") + 
+  labs(title="Histogram for residuals") +
+  labs(x="residuals", y="Count")
+```
+```{r}
+shapiro.test(residuals(Interaction.Model))
+```
+$$
+H_{0}:  \text{The sample data are significantly normally distributed}\\
+H_{A}:  \text{The sample data are not significantly normally distributed}
+$$
+Base on the result of Shapiro-Wilk normality test, with the p-value lower than 0.05, we should reject the null hypothesis and conclude that the sample data are not significantly distributed.
+
+### Outlier
+```{r}
+lev=hatvalues(Interaction.Model)
+p = length(coef(Interaction.Model))
+n = nrow(Energy_investigation)
+outlier2p = lev[lev>(2*p/n)]
+outlier3p = lev[lev>(3*p/n)]
+print("h_I>2p/n, outliers are")
+print(outlier2p)
+print("h_I>3p/n, outliers are")
+print(outlier3p)
+```
+```{r}
+plot(rownames(Energy_investigation),lev, main = "Leverage in Advertising Dataset", xlab="observation",
+    ylab = "Leverage Value", ylim = c(0,0.25))
+abline(h = 2 *p/n, lty = 1)
+```
+Base on the result of leverage points method, all hatvalues in the model is lower than the threshold, meaning that there is no outlier in our model.
